@@ -22,7 +22,6 @@ A React-based frontend for the SplitSUI dApp, allowing users to perform multi-se
 1. Clone the repository:
 ```bash
 git clone https://github.com/clatsonhacks/sui-overflow.git
-cd sui-overflow/frontend
 ```
 
 2. Install dependencies:
