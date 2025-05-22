@@ -30,15 +30,158 @@ export default function SplitSUIApp() {
   const [manageRequestId, setManageRequestId] = useState('');
   const [paymentRequests, setPaymentRequests] = useState([]);
 
-  // Calculate total for multi-send
+  // Transactions state
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // Load transactions when account changes
   useEffect(() => {
-    const amountList = amounts.split('\n').filter(a => a.trim());
-    const total = amountList.reduce((sum, amount) => {
-      const num = parseFloat(amount.trim());
-      return sum + (isNaN(num) ? 0 : num);
-    }, 0);
-    setTotalAmount(total);
-  }, [amounts]);
+    if (account && activeTab === 'transactions') {
+      loadTransactions();
+    }
+  }, [account, activeTab]);
+
+  const loadTransactions = async () => {
+    if (!account || !suiClient) return;
+    
+    setLoading(true);
+    try {
+      // Get transactions from the user's address
+      const txns = await suiClient.queryTransactionBlocks({
+        filter: {
+          FromAddress: account.address,
+        },
+        options: {
+          showEffects: true,
+          showEvents: true,
+          showInput: true,
+          showObjectChanges: true,
+        },
+        limit: 50,
+      });
+
+      const parsedTransactions = [];
+
+      for (const txn of txns.data) {
+        if (!txn.transaction || !txn.transaction.data || !txn.transaction.data.transaction) continue;
+        
+        const transaction = txn.transaction.data.transaction;
+        if (transaction.kind !== 'ProgrammableTransaction') continue;
+
+        const commands = transaction.transactions || [];
+        
+        for (const command of commands) {
+          if (command.MoveCall) {
+            const moveCall = command.MoveCall;
+            const target = `${moveCall.package}::${moveCall.module}::${moveCall.function}`;
+            
+            let transactionType = 'Unknown';
+            let details = {};
+            
+            // Parse different transaction types
+            if (target.includes('::split_sui::multi_send_sui')) {
+              transactionType = 'Multi-Send';
+              // Try to extract recipient count from arguments
+              if (moveCall.arguments && moveCall.arguments.length >= 2) {
+                try {
+                  const recipients = moveCall.arguments[1];
+                  if (recipients.Pure) {
+                    details.recipientCount = recipients.Pure[1]?.length || 'N/A';
+                  }
+                } catch (e) {
+                  details.recipientCount = 'N/A';
+                }
+              }
+            } else if (target.includes('::group_payment::create_group_payment')) {
+              transactionType = 'Create Group Payment';
+              // Extract created object ID from effects
+              if (txn.effects?.created) {
+                const createdObjects = txn.effects.created;
+                const groupPaymentObject = createdObjects.find(obj => 
+                  obj.owner && typeof obj.owner === 'object' && obj.owner.Shared
+                );
+                if (groupPaymentObject) {
+                  details.requestId = groupPaymentObject.reference.objectId;
+                }
+              }
+            } else if (target.includes('::group_payment::contribute')) {
+              transactionType = 'Contribute to Group Payment';
+              // Try to extract request ID from arguments
+              if (moveCall.arguments && moveCall.arguments.length >= 1) {
+                const requestArg = moveCall.arguments[0];
+                if (requestArg.Object) {
+                  details.requestId = requestArg.Object.ImmOrOwnedObject || requestArg.Object.SharedObject?.objectId;
+                }
+              }
+            } else if (target.includes('::group_payment::manual_release')) {
+              transactionType = 'Manual Release Payment';
+              if (moveCall.arguments && moveCall.arguments.length >= 1) {
+                const requestArg = moveCall.arguments[0];
+                if (requestArg.Object) {
+                  details.requestId = requestArg.Object.ImmOrOwnedObject || requestArg.Object.SharedObject?.objectId;
+                }
+              }
+            } else if (target.includes('::group_payment::cancel_and_refund')) {
+              transactionType = 'Cancel & Refund Payment';
+              if (moveCall.arguments && moveCall.arguments.length >= 1) {
+                const requestArg = moveCall.arguments[0];
+                if (requestArg.Object) {
+                  details.requestId = requestArg.Object.ImmOrOwnedObject || requestArg.Object.SharedObject?.objectId;
+                }
+              }
+            }
+            
+            if (transactionType !== 'Unknown') {
+              // Extract events for additional information
+              const events = txn.events || [];
+              const relevantEvents = events.filter(event => 
+                event.type.includes('GroupPaymentCreatedEvent') ||
+                event.type.includes('ContributionEvent') ||
+                event.type.includes('PaymentReleasedEvent') ||
+                event.type.includes('PaymentCancelledEvent')
+              );
+
+              // Extract additional details from events
+              relevantEvents.forEach(event => {
+                if (event.parsedJson) {
+                  if (event.type.includes('GroupPaymentCreatedEvent')) {
+                    details.totalAmount = event.parsedJson.total_amount ? 
+                      (parseInt(event.parsedJson.total_amount) / 1000000000).toFixed(2) + ' SUI' : 'N/A';
+                    details.payersCount = event.parsedJson.payers_count || 'N/A';
+                    details.recipient = event.parsedJson.recipient || 'N/A';
+                  } else if (event.type.includes('ContributionEvent')) {
+                    details.amount = event.parsedJson.amount ? 
+                      (parseInt(event.parsedJson.amount) / 1000000000).toFixed(2) + ' SUI' : 'N/A';
+                  } else if (event.type.includes('PaymentReleasedEvent')) {
+                    details.totalAmount = event.parsedJson.total_amount ? 
+                      (parseInt(event.parsedJson.total_amount) / 1000000000).toFixed(2) + ' SUI' : 'N/A';
+                    details.recipient = event.parsedJson.recipient || 'N/A';
+                  }
+                }
+              });
+
+              parsedTransactions.push({
+                digest: txn.digest,
+                timestamp: txn.timestampMs ? new Date(parseInt(txn.timestampMs)).toLocaleString() : 'N/A',
+                type: transactionType,
+                status: txn.effects?.status?.status === 'success' ? 'Success' : 'Failed',
+                details,
+                gasUsed: txn.effects?.gasUsed ? 
+                  Object.values(txn.effects.gasUsed).reduce((a, b) => parseInt(a) + parseInt(b), 0) : 'N/A',
+              });
+            }
+          }
+        }
+      }
+
+      setTransactions(parsedTransactions);
+    } catch (error) {
+      console.error('Error loading transactions:', error);
+      alert('Error loading transactions: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleMultiSend = async () => {
     if (!account) {
