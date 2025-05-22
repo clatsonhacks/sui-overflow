@@ -1,3 +1,4 @@
+#[allow(duplicate_alias)]
 module splitsui::group_payment {
     // Only import what we need without aliases
     use sui::object::new as obj_new;
@@ -12,7 +13,7 @@ module splitsui::group_payment {
     use sui::vec_map::{Self, VecMap};
     
     // UID is imported directly from the struct definition
-    struct GroupPaymentRequest<phantom T> has key, store {
+    public struct GroupPaymentRequest<phantom T> has key, store {
         id: sui::object::UID,
         payers: vector<address>,
         amounts: vector<u64>,

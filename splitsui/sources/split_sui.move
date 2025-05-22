@@ -1,3 +1,4 @@
+#[allow(duplicate_alias)]
 module splitsui::split_sui {
     use sui::sui::SUI;
     // Import the necessary types and functions directly

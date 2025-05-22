@@ -1,3 +1,4 @@
+#[allow(duplicate_alias)]
 module splitsui::multi_send {
     // Import specific functions instead of whole modules
     use sui::transfer::public_transfer;
