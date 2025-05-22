@@ -3,7 +3,7 @@ import { getFullnodeUrl, SuiClient } from '@mysten/sui.js/client';
 import { TransactionBlock } from '@mysten/sui.js/transactions';
 import { ConnectButton, useCurrentAccount, useSignAndExecuteTransactionBlock, useSuiClient } from '@mysten/dapp-kit';
 
-const PACKAGE_ID = import.meta.env.VITE_PACKAGE_ID || '0x1166b49490f8f7916a670afd8c8134f008005551f16c761250689afc2a487f8d';
+const PACKAGE_ID = '0xdd0b929609fd7766c2593893e2f0498d900de081deec222b4f1324f6b1e514c9';
 
 export default function SplitSUIApp() {
   const [activeTab, setActiveTab] = useState('multi-send');
@@ -22,24 +22,168 @@ export default function SplitSUIApp() {
   const [recipient, setRecipient] = useState('');
   const [description, setDescription] = useState('');
 
-  // Contribute to group payment state
-  const [requestId, setRequestId] = useState('');
-  const [contributionAmount, setContributionAmount] = useState('');
-
-  // Manage payment state
-  const [manageRequestId, setManageRequestId] = useState('');
+  // Payment requests state
   const [paymentRequests, setPaymentRequests] = useState([]);
+  const [createdRequests, setCreatedRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
 
   // Transactions state
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Load transactions when account changes
+  // Load payment requests when account changes or tab changes
   useEffect(() => {
-    if (account && activeTab === 'transactions') {
+    if (account && (activeTab === 'contribute' || activeTab === 'manage')) {
+      loadPaymentRequests();
+    } else if (account && activeTab === 'transactions') {
       loadTransactions();
     }
   }, [account, activeTab]);
+
+  // Calculate total amount when amounts change
+  useEffect(() => {
+    if (amounts.trim()) {
+      const amountList = amounts.split('\n')
+        .filter(a => a.trim())
+        .map(a => parseFloat(a.trim()) || 0);
+      setTotalAmount(amountList.reduce((sum, amount) => sum + amount, 0));
+    } else {
+      setTotalAmount(0);
+    }
+  }, [amounts]);
+
+  const loadPaymentRequests = async () => {
+    if (!account || !suiClient) return;
+    
+    setLoadingRequests(true);
+    try {
+      // Query all GroupPaymentRequest objects
+      const objects = await suiClient.getOwnedObjects({
+        owner: account.address,
+        filter: {
+          StructType: `${PACKAGE_ID}::group_payment::GroupPaymentRequest<0x2::sui::SUI>`
+        },
+        options: {
+          showContent: true,
+          showType: true,
+        }
+      });
+
+      // Also query shared objects that might include our requests
+      const events = await suiClient.queryEvents({
+        query: {
+          MoveEventType: `${PACKAGE_ID}::group_payment::GroupPaymentCreatedEvent`
+        },
+        limit: 100,
+        order: 'descending'
+      });
+
+      const userRequests = [];
+      const userCreatedRequests = [];
+
+      // Process events to find relevant payment requests
+      for (const event of events.data) {
+        if (event.parsedJson) {
+          const eventData = event.parsedJson;
+          const requestId = eventData.request_id;
+          
+          // Check if user is involved in this payment
+          const isCreator = eventData.creator === account.address;
+          const isPayer = eventData.payers && eventData.payers.includes(account.address);
+          
+          if (isCreator || isPayer) {
+            try {
+              // Get the current state of the payment request
+              const objectData = await suiClient.getObject({
+                id: requestId,
+                options: {
+                  showContent: true,
+                  showType: true,
+                }
+              });
+
+              if (objectData.data && objectData.data.content) {
+                const content = objectData.data.content;
+                if (content.dataType === 'moveObject' && content.fields) {
+                  const fields = content.fields;
+                  
+                  // Calculate user's required amount if they're a payer
+                  let userAmount = 0;
+                  let userContributed = false;
+                  
+                  if (isPayer && fields.payers && fields.amounts) {
+                    const payerIndex = fields.payers.indexOf(account.address);
+                    if (payerIndex !== -1 && fields.amounts[payerIndex]) {
+                      userAmount = parseFloat(fields.amounts[payerIndex]) / 1000000000; // Convert from MIST
+                    }
+                    
+                    // Check if user has contributed using paid_status
+                    if (fields.paid_status && fields.paid_status.fields && fields.paid_status.fields.contents) {
+                      const paidStatusEntry = fields.paid_status.fields.contents.find(
+                        entry => entry.fields && entry.fields.key === account.address
+                      );
+                      userContributed = paidStatusEntry ? paidStatusEntry.fields.value : false;
+                    }
+                  }
+
+                  // Get list of paid and unpaid contributors
+                  const paidContributors = [];
+                  const unpaidContributors = [];
+                  
+                  if (fields.paid_status && fields.paid_status.fields && fields.paid_status.fields.contents) {
+                    fields.paid_status.fields.contents.forEach(entry => {
+                      if (entry.fields) {
+                        if (entry.fields.value) {
+                          paidContributors.push(entry.fields.key);
+                        } else {
+                          unpaidContributors.push(entry.fields.key);
+                        }
+                      }
+                    });
+                  }
+
+                  const requestData = {
+                    id: requestId,
+                    payers: fields.payers || [],
+                    amounts: (fields.amounts || []).map(amount => parseFloat(amount) / 1000000000),
+                    recipient: fields.recipient,
+                    description: fields.description ? new TextDecoder().decode(new Uint8Array(fields.description)) : '',
+                    createdAt: fields.created_at,
+                    creator: fields.creator,
+                    totalAmount: parseFloat(fields.total_amount || 0) / 1000000000,
+                    totalCollected: parseFloat(fields.total_collected || 0) / 1000000000,
+                    paidContributors,
+                    unpaidContributors,
+                    userAmount,
+                    userContributed,
+                    isCreator,
+                    isPayer
+                  };
+
+                  if (isCreator) {
+                    userCreatedRequests.push(requestData);
+                  }
+                  if (isPayer) {
+                    userRequests.push(requestData);
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error fetching payment request:', requestId, error);
+            }
+          }
+        }
+      }
+
+      setPaymentRequests(userRequests);
+      setCreatedRequests(userCreatedRequests);
+    } catch (error) {
+      console.error('Error loading payment requests:', error);
+      alert('Error loading payment requests: ' + error.message);
+    } finally {
+      setLoadingRequests(false);
+    }
+  };
 
   const loadTransactions = async () => {
     if (!account || !suiClient) return;
@@ -81,7 +225,6 @@ export default function SplitSUIApp() {
             // Parse different transaction types
             if (target.includes('::split_sui::multi_send_sui')) {
               transactionType = 'Multi-Send';
-              // Try to extract recipient count from arguments
               if (moveCall.arguments && moveCall.arguments.length >= 2) {
                 try {
                   const recipients = moveCall.arguments[1];
@@ -94,7 +237,6 @@ export default function SplitSUIApp() {
               }
             } else if (target.includes('::group_payment::create_group_payment')) {
               transactionType = 'Create Group Payment';
-              // Extract created object ID from effects
               if (txn.effects?.created) {
                 const createdObjects = txn.effects.created;
                 const groupPaymentObject = createdObjects.find(obj => 
@@ -106,15 +248,6 @@ export default function SplitSUIApp() {
               }
             } else if (target.includes('::group_payment::contribute')) {
               transactionType = 'Contribute to Group Payment';
-              // Try to extract request ID from arguments
-              if (moveCall.arguments && moveCall.arguments.length >= 1) {
-                const requestArg = moveCall.arguments[0];
-                if (requestArg.Object) {
-                  details.requestId = requestArg.Object.ImmOrOwnedObject || requestArg.Object.SharedObject?.objectId;
-                }
-              }
-            } else if (target.includes('::group_payment::manual_release')) {
-              transactionType = 'Manual Release Payment';
               if (moveCall.arguments && moveCall.arguments.length >= 1) {
                 const requestArg = moveCall.arguments[0];
                 if (requestArg.Object) {
@@ -122,7 +255,7 @@ export default function SplitSUIApp() {
                 }
               }
             } else if (target.includes('::group_payment::cancel_and_refund')) {
-              transactionType = 'Cancel & Refund Payment';
+              transactionType = 'Cancel Payment Request';
               if (moveCall.arguments && moveCall.arguments.length >= 1) {
                 const requestArg = moveCall.arguments[0];
                 if (requestArg.Object) {
@@ -137,7 +270,6 @@ export default function SplitSUIApp() {
               const relevantEvents = events.filter(event => 
                 event.type.includes('GroupPaymentCreatedEvent') ||
                 event.type.includes('ContributionEvent') ||
-                event.type.includes('PaymentReleasedEvent') ||
                 event.type.includes('PaymentCancelledEvent')
               );
 
@@ -152,10 +284,7 @@ export default function SplitSUIApp() {
                   } else if (event.type.includes('ContributionEvent')) {
                     details.amount = event.parsedJson.amount ? 
                       (parseInt(event.parsedJson.amount) / 1000000000).toFixed(2) + ' SUI' : 'N/A';
-                  } else if (event.type.includes('PaymentReleasedEvent')) {
-                    details.totalAmount = event.parsedJson.total_amount ? 
-                      (parseInt(event.parsedJson.total_amount) / 1000000000).toFixed(2) + ' SUI' : 'N/A';
-                    details.recipient = event.parsedJson.recipient || 'N/A';
+                    details.contributor = event.parsedJson.contributor || 'N/A';
                   }
                 }
               });
@@ -201,6 +330,9 @@ export default function SplitSUIApp() {
         return;
       }
 
+      const totalAmountNeeded = amountList.reduce((sum, amount) => sum + amount, 0);
+      const gasBuffer = 50000000; // 0.05 SUI buffer for gas fees
+
       // Get user's SUI coins
       const coins = await suiClient.getCoins({
         owner: account.address,
@@ -212,10 +344,29 @@ export default function SplitSUIApp() {
         return;
       }
 
+      // Sort coins by balance (largest first)
+      const sortedCoins = coins.data
+        .map(coin => ({
+          ...coin,
+          balance: parseInt(coin.balance)
+        }))
+        .sort((a, b) => b.balance - a.balance);
+
+      // Find a coin that has enough balance for total amount + gas
+      let suitableCoin = sortedCoins.find(coin => coin.balance >= totalAmountNeeded + gasBuffer);
+      
+      if (!suitableCoin) {
+        suitableCoin = sortedCoins[0];
+        if (suitableCoin.balance < totalAmountNeeded) {
+          alert(`Insufficient balance. You need ${(totalAmountNeeded / 1000000000).toFixed(2)} SUI + gas fees, but your largest coin only has ${(suitableCoin.balance / 1000000000).toFixed(2)} SUI`);
+          return;
+        }
+      }
+
       const txb = new TransactionBlock();
       
-      // Use the first coin
-      const coinInput = txb.object(coins.data[0].coinObjectId);
+      // Use the suitable coin
+      const coinInput = txb.object(suitableCoin.coinObjectId);
 
       txb.moveCall({
         target: `${PACKAGE_ID}::split_sui::multi_send_sui`,
@@ -225,6 +376,9 @@ export default function SplitSUIApp() {
           txb.pure(amountList, 'vector<u64>'),
         ],
       });
+
+      // Set gas budget
+      txb.setGasBudget(10000000); // 0.01 SUI gas budget
 
       signAndExecute(
         { transactionBlock: txb },
@@ -272,6 +426,7 @@ export default function SplitSUIApp() {
 
       const txb = new TransactionBlock();
 
+      // Use the simplified create function
       txb.moveCall({
         target: `${PACKAGE_ID}::group_payment::create_group_payment`,
         arguments: [
@@ -293,6 +448,8 @@ export default function SplitSUIApp() {
             setPayerAmounts('');
             setRecipient('');
             setDescription('');
+            // Reload requests to show the new one
+            loadPaymentRequests();
           },
           onError: (error) => {
             console.error('Group payment creation failed:', error);
@@ -306,19 +463,15 @@ export default function SplitSUIApp() {
     }
   };
 
-  const handleContributeToPayment = async () => {
+  const handleContributeToPayment = async (requestId, amount) => {
     if (!account) {
       alert('Please connect your wallet first');
       return;
     }
 
-    if (!requestId.trim() || !contributionAmount.trim()) {
-      alert('Please enter both request ID and contribution amount');
-      return;
-    }
-
     try {
-      const amountInMist = Math.floor(parseFloat(contributionAmount) * 1000000000);
+      const amountInMist = Math.floor(amount * 1000000000);
+      const gasBuffer = 50000000; // 0.05 SUI buffer for gas fees
 
       // Get user's SUI coins
       const coins = await suiClient.getCoins({
@@ -331,29 +484,57 @@ export default function SplitSUIApp() {
         return;
       }
 
+      // Sort coins by balance (largest first) and find suitable coins
+      const sortedCoins = coins.data
+        .map(coin => ({
+          ...coin,
+          balance: parseInt(coin.balance)
+        }))
+        .sort((a, b) => b.balance - a.balance);
+
+      // Find a coin that has enough balance for contribution + gas
+      let suitableCoin = sortedCoins.find(coin => coin.balance >= amountInMist + gasBuffer);
+      
+      if (!suitableCoin) {
+        // If no single coin has enough, try to use the largest coin available
+        suitableCoin = sortedCoins[0];
+        
+        if (suitableCoin.balance < amountInMist) {
+          alert(`Insufficient balance. You need ${amount} SUI + gas fees, but your largest coin only has ${(suitableCoin.balance / 1000000000).toFixed(2)} SUI`);
+          return;
+        }
+      }
+
+      console.log(`Using coin with balance: ${(suitableCoin.balance / 1000000000).toFixed(2)} SUI for contribution: ${amount} SUI`);
+
       const txb = new TransactionBlock();
       
-      // Split the exact amount needed
-      const coinInput = txb.object(coins.data[0].coinObjectId);
+      // Use the suitable coin
+      const coinInput = txb.object(suitableCoin.coinObjectId);
+      
+      // Split the exact amount needed for contribution
       const payment = txb.splitCoins(coinInput, [txb.pure(amountInMist)]);
 
       txb.moveCall({
         target: `${PACKAGE_ID}::group_payment::contribute`,
         arguments: [
-          txb.object(requestId.trim()),
+          txb.object(requestId),
           payment,
         ],
         typeArguments: ['0x2::sui::SUI'],
       });
+
+      // Set gas budget to ensure transaction can complete
+      txb.setGasBudget(10000000); // 0.01 SUI gas budget
 
       signAndExecute(
         { transactionBlock: txb },
         {
           onSuccess: (result) => {
             console.log('Contribution successful:', result);
-            alert('Contribution made successfully!');
-            setRequestId('');
-            setContributionAmount('');
+            alert('Contribution made successfully! Payment has been sent directly to the recipient.');
+            // Reload requests to update status
+            loadPaymentRequests();
           },
           onError: (error) => {
             console.error('Contribution failed:', error);
@@ -367,60 +548,13 @@ export default function SplitSUIApp() {
     }
   };
 
-  const handleManualRelease = async () => {
+  const handleCancelPayment = async (requestId) => {
     if (!account) {
       alert('Please connect your wallet first');
       return;
     }
 
-    if (!manageRequestId.trim()) {
-      alert('Please enter request ID');
-      return;
-    }
-
-    try {
-      const txb = new TransactionBlock();
-
-      txb.moveCall({
-        target: `${PACKAGE_ID}::group_payment::manual_release`,
-        arguments: [
-          txb.object(manageRequestId.trim()),
-        ],
-        typeArguments: ['0x2::sui::SUI'],
-      });
-
-      signAndExecute(
-        { transactionBlock: txb },
-        {
-          onSuccess: (result) => {
-            console.log('Manual release successful:', result);
-            alert('Payment released successfully!');
-            setManageRequestId('');
-          },
-          onError: (error) => {
-            console.error('Manual release failed:', error);
-            alert('Manual release failed: ' + error.message);
-          },
-        }
-      );
-    } catch (error) {
-      console.error('Error:', error);
-      alert('Error: ' + error.message);
-    }
-  };
-
-  const handleCancelAndRefund = async () => {
-    if (!account) {
-      alert('Please connect your wallet first');
-      return;
-    }
-
-    if (!manageRequestId.trim()) {
-      alert('Please enter request ID');
-      return;
-    }
-
-    const confirmed = window.confirm('Are you sure you want to cancel this payment request and refund all contributors?');
+    const confirmed = window.confirm('Are you sure you want to cancel this payment request? Note: Payments already made cannot be automatically refunded as they were sent directly to the recipient.');
     if (!confirmed) return;
 
     try {
@@ -429,7 +563,7 @@ export default function SplitSUIApp() {
       txb.moveCall({
         target: `${PACKAGE_ID}::group_payment::cancel_and_refund`,
         arguments: [
-          txb.object(manageRequestId.trim()),
+          txb.object(requestId),
         ],
         typeArguments: ['0x2::sui::SUI'],
       });
@@ -438,13 +572,13 @@ export default function SplitSUIApp() {
         { transactionBlock: txb },
         {
           onSuccess: (result) => {
-            console.log('Cancel and refund successful:', result);
-            alert('Payment request cancelled and refunds processed!');
-            setManageRequestId('');
+            console.log('Cancel successful:', result);
+            alert('Payment request cancelled successfully!');
+            loadPaymentRequests();
           },
           onError: (error) => {
-            console.error('Cancel and refund failed:', error);
-            alert('Cancel and refund failed: ' + error.message);
+            console.error('Cancel failed:', error);
+            alert('Cancel failed: ' + error.message);
           },
         }
       );
@@ -454,9 +588,14 @@ export default function SplitSUIApp() {
     }
   };
 
+  const formatAddress = (address) => {
+    if (!address) return 'N/A';
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-4xl mx-auto px-6">
+      <div className="max-w-6xl mx-auto px-6">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">SplitSUI</h1>
@@ -497,7 +636,7 @@ export default function SplitSUIApp() {
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Contribute
+              My Payments
             </button>
             <button
               onClick={() => setActiveTab('manage')}
@@ -571,7 +710,7 @@ export default function SplitSUIApp() {
         {activeTab === 'create-group' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
             <h2 className="text-2xl font-semibold mb-4">Create Group Payment</h2>
-            <p className="text-gray-600 mb-6">Create a payment request where multiple people contribute</p>
+            <p className="text-gray-600 mb-6">Create a payment request where multiple people contribute (payments are sent directly to recipient)</p>
             
             <div className="space-y-6">
               <div className="grid md:grid-cols-2 gap-6">
@@ -627,6 +766,12 @@ export default function SplitSUIApp() {
               </div>
             </div>
             
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mt-6">
+              <p className="text-sm text-blue-800">
+                <strong>Note:</strong> When contributors pay, their payments will be sent directly to the recipient. The contract will track who has paid for transparency.
+              </p>
+            </div>
+            
             <button
               onClick={handleCreateGroupPayment}
               disabled={!account || !payers.trim() || !payerAmounts.trim() || !recipient.trim()}
@@ -637,104 +782,238 @@ export default function SplitSUIApp() {
           </div>
         )}
 
-        {/* Contribute to Group Payment Tab */}
+        {/* My Payments Tab */}
         {activeTab === 'contribute' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-2xl font-semibold mb-4">Contribute to Group Payment</h2>
-            <p className="text-gray-600 mb-6">Pay your share of an existing group payment request</p>
-            
-            <div className="space-y-6">
+            <div className="flex justify-between items-center mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Request ID
-                </label>
-                <input
-                  type="text"
-                  value={requestId}
-                  onChange={(e) => setRequestId(e.target.value)}
-                  placeholder="0x123..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  The object ID of the group payment request you want to contribute to
-                </p>
+                <h2 className="text-2xl font-semibold">My Payments</h2>
+                <p className="text-gray-600">Payments where you need to contribute</p>
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Your Contribution Amount (SUI)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={contributionAmount}
-                  onChange={(e) => setContributionAmount(e.target.value)}
-                  placeholder="10.0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Enter the exact amount you're supposed to contribute
-                </p>
-              </div>
+              <button
+                onClick={loadPaymentRequests}
+                disabled={loadingRequests}
+                className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:bg-gray-300 transition-colors"
+              >
+                {loadingRequests ? 'Loading...' : 'Refresh'}
+              </button>
             </div>
             
-            <button
-              onClick={handleContributeToPayment}
-              disabled={!account || !requestId.trim() || !contributionAmount.trim()}
-              className="w-full mt-6 bg-purple-500 text-white py-3 px-4 rounded-md hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-            >
-              Make Contribution
-            </button>
+            {loadingRequests ? (
+              <div className="text-center py-8">
+                <p className="text-gray-600">Loading payment requests...</p>
+              </div>
+            ) : paymentRequests.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-600">No payment requests found</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {paymentRequests.map((request, index) => (
+                  <div key={index} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h3 className="font-semibold text-lg">
+                          {request.description || 'Group Payment'}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Created by: {formatAddress(request.creator)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          request.userContributed 
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {request.userContributed ? 'Paid' : 'Pending'}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="grid md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <p className="text-sm text-gray-600">Your contribution:</p>
+                        <p className="font-semibold">{request.userAmount.toFixed(2)} SUI</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Total amount:</p>
+                        <p className="font-semibold">{request.totalAmount.toFixed(2)} SUI</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Total collected:</p>
+                        <p className="font-semibold text-green-600">{request.totalCollected.toFixed(2)} SUI</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Recipient:</p>
+                        <p className="font-semibold">{formatAddress(request.recipient)}</p>
+                      </div>
+                    </div>
+
+                    {/* Payment Status Tracking */}
+                    <div className="mb-4">
+                      <p className="text-sm text-gray-600 mb-2">Payment Status:</p>
+                      <div className="bg-gray-50 rounded-md p-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {request.payers.map((payer, payerIndex) => {
+                            const hasPaid = request.paidContributors.includes(payer);
+                            const amount = request.amounts[payerIndex];
+                            return (
+                              <div key={payerIndex} className="flex justify-between items-center py-1">
+                                <span className="text-sm flex items-center">
+                                  {hasPaid ? (
+                                    <span className="text-green-500 mr-1">✓</span>
+                                  ) : (
+                                    <span className="text-red-500 mr-1">○</span>
+                                  )}
+                                  {formatAddress(payer)}
+                                  {payer === account?.address && <span className="text-blue-600 ml-1">(You)</span>}
+                                </span>
+                                <span className={`text-sm font-medium ${hasPaid ? 'text-green-600' : 'text-gray-600'}`}>
+                                  {amount.toFixed(2)} SUI
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {!request.userContributed && (
+                      <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                        <div className="text-sm text-gray-600">
+                          Payment will be sent directly to recipient
+                        </div>
+                        <button
+                          onClick={() => handleContributeToPayment(request.id, request.userAmount)}
+                          className="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 transition-colors"
+                        >
+                          Pay {request.userAmount.toFixed(2)} SUI
+                        </button>
+                      </div>
+                    )}
+
+                    {request.userContributed && (
+                      <div className="pt-4 border-t border-gray-200">
+                        <p className="text-sm text-green-600 font-medium">
+                          ✓ You have contributed {request.userAmount.toFixed(2)} SUI (sent directly to recipient)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {/* Manage Payments Tab */}
         {activeTab === 'manage' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-2xl font-semibold mb-4">Manage Group Payments</h2>
-            <p className="text-gray-600 mb-6">Release payments manually or cancel and refund</p>
-            
-            <div className="space-y-6">
+            <div className="flex justify-between items-center mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Request ID
-                </label>
-                <input
-                  type="text"
-                  value={manageRequestId}
-                  onChange={(e) => setManageRequestId(e.target.value)}
-                  placeholder="0x123..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                <h2 className="text-2xl font-semibold">Manage Payments</h2>
+                <p className="text-gray-600">Payments you created</p>
               </div>
-              
-              <div className="grid md:grid-cols-2 gap-4">
-                <button
-                  onClick={handleManualRelease}
-                  disabled={!account || !manageRequestId.trim()}
-                  className="w-full bg-green-500 text-white py-3 px-4 rounded-md hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  Manual Release Payment
-                </button>
-                
-                <button
-                  onClick={handleCancelAndRefund}
-                  disabled={!account || !manageRequestId.trim()}
-                  className="w-full bg-red-500 text-white py-3 px-4 rounded-md hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  Cancel & Refund All
-                </button>
-              </div>
-              
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
-                <h3 className="text-sm font-medium text-yellow-800 mb-2">Important Notes:</h3>
-                <ul className="text-xs text-yellow-700 space-y-1">
-                  <li>• <strong>Manual Release:</strong> Only the recipient can manually release payments before all contributions are received</li>
-                  <li>• <strong>Cancel & Refund:</strong> Only the payment creator can cancel and refund all contributors</li>
-                  <li>• Payments are automatically released when all required contributions are received</li>
-                </ul>
-              </div>
+              <button
+                onClick={loadPaymentRequests}
+                disabled={loadingRequests}
+                className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:bg-gray-300 transition-colors"
+              >
+                {loadingRequests ? 'Loading...' : 'Refresh'}
+              </button>
             </div>
+            
+            {loadingRequests ? (
+              <div className="text-center py-8">
+                <p className="text-gray-600">Loading payment requests...</p>
+              </div>
+            ) : createdRequests.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-600">No payment requests created</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {createdRequests.map((request, index) => (
+                  <div key={index} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h3 className="font-semibold text-lg">
+                          {request.description || 'Group Payment'}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Request ID: {formatAddress(request.id)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          Active
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="grid md:grid-cols-3 gap-4 mb-4">
+                      <div>
+                        <p className="text-sm text-gray-600">Total amount:</p>
+                        <p className="font-semibold">{request.totalAmount.toFixed(2)} SUI</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Collected:</p>
+                        <p className="font-semibold text-green-600">{request.totalCollected.toFixed(2)} SUI</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Recipient:</p>
+                        <p className="font-semibold">{formatAddress(request.recipient)}</p>
+                      </div>
+                    </div>
+
+                    {/* Payment Status Tracking */}
+                    <div className="mb-4">
+                      <p className="text-sm text-gray-600 mb-2">Payment Status ({request.paidContributors.length} of {request.payers.length} paid):</p>
+                      <div className="bg-gray-50 rounded-md p-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {request.payers.map((payer, payerIndex) => {
+                            const hasPaid = request.paidContributors.includes(payer);
+                            const amount = request.amounts[payerIndex];
+                            return (
+                              <div key={payerIndex} className="flex justify-between items-center py-1">
+                                <span className="text-sm flex items-center">
+                                  {hasPaid ? (
+                                    <span className="text-green-500 mr-1">✓</span>
+                                  ) : (
+                                    <span className="text-red-500 mr-1">○</span>
+                                  )}
+                                  {formatAddress(payer)}
+                                </span>
+                                <span className={`text-sm font-medium ${hasPaid ? 'text-green-600' : 'text-gray-600'}`}>
+                                  {amount.toFixed(2)} SUI
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
+                      <p className="text-sm text-yellow-800">
+                        <strong>Note:</strong> Payments are sent directly to the recipient when contributors pay. 
+                        Collected amount: <strong>{request.totalCollected.toFixed(2)} SUI</strong>
+                      </p>
+                    </div>
+
+                    <div className="flex justify-end pt-4 border-t border-gray-200">
+                      <button
+                        onClick={() => handleCancelPayment(request.id)}
+                        className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition-colors"
+                      >
+                        Cancel Request
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
