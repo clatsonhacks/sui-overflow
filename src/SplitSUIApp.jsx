@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TransactionBlock } from '@mysten/sui.js/transactions';
-import { ConnectButton, useCurrentAccount, useSignAndExecuteTransactionBlock, useSuiClient } from '@mysten/dapp-kit';
+import { ConnectButton, useCurrentAccount, useSignAndExecuteTransactionBlock, useSuiClient, useDisconnectWallet } from '@mysten/dapp-kit';
 
 const PACKAGE_ID = '0xdd0b929609fd7766c2593893e2f0498d900de081deec222b4f1324f6b1e514c9';
 
@@ -19,21 +19,19 @@ export default function SplitSUIApp() {
   const account = useCurrentAccount();
   const { mutate: signAndExecute } = useSignAndExecuteTransactionBlock();
   const suiClient = useSuiClient();
+  const { mutate: disconnect } = useDisconnectWallet();
 
   const [recipients, setRecipients] = useState([{ address: '', amount: '' }]);
   const [totalAmount, setTotalAmount] = useState(0);
-
   
   const [payers, setPayers] = useState([{ address: '', amount: '' }]);
   const [recipient, setRecipient] = useState('');
   const [description, setDescription] = useState('');
 
-
   const [paymentRequests, setPaymentRequests] = useState([]);
   const [createdRequests, setCreatedRequests] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
-
   
   const [csvPreview, setCsvPreview] = useState(null);
   const [showCsvModal, setShowCsvModal] = useState(false);
@@ -59,7 +57,6 @@ export default function SplitSUIApp() {
       throw new Error('CSV must have at least a header row and one data row');
     }
 
-   
     const headerLine = lines[0].trim();
     if (!headerLine) {
       throw new Error('CSV header row is empty');
@@ -67,7 +64,6 @@ export default function SplitSUIApp() {
 
     const headers = headerLine.split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
     
-   
     const data = [];
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -121,7 +117,6 @@ export default function SplitSUIApp() {
           return;
         }
 
-        
         setCsvPreview(processedData);
         setCsvImportType(type);
         setShowCsvModal(true);
@@ -139,13 +134,11 @@ export default function SplitSUIApp() {
     reader.readAsText(file);
   };
 
-
   const processCSVData = (data) => {
     const processedData = [];
     const headers = Object.keys(data[0] || {});
     console.log('Available headers:', headers);
 
-   
     const addressColumn = headers.find(h => {
       const normalized = h.toLowerCase();
       return ['address', 'wallet', 'recipient', 'to', 'addr'].includes(normalized);
@@ -176,13 +169,11 @@ export default function SplitSUIApp() {
           return;
         }
 
-        
         if (!address.startsWith('0x') || address.length < 10) {
           console.warn(`Invalid address format in row ${index + 1}: ${address}`);
           return;
         }
 
-       
         const numAmount = parseFloat(amount);
         if (isNaN(numAmount) || numAmount <= 0) {
           console.warn(`Invalid amount in row ${index + 1}: ${amount}`);
@@ -236,7 +227,6 @@ export default function SplitSUIApp() {
     setCsvError('');
   };
 
- 
   const fileInputRef = React.useRef(null);
 
   const handleFileInputChange = (e, type) => {
@@ -645,7 +635,7 @@ export default function SplitSUIApp() {
         </div>
       )}
     </div>
-);
+  );
 
   const InputField = ({ label, value, onChange, placeholder, type = "text", error }) => (
     <div className="space-y-2">
@@ -668,9 +658,10 @@ export default function SplitSUIApp() {
           <icons.Wallet className="mx-auto mb-6 text-blue-400" />
           <h1 className="text-3xl font-bold text-white mb-4">Split SUI</h1>
           <p className="text-gray-300 mb-8">Connect your wallet to start splitting SUI payments</p>
-          <button className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all font-medium shadow-lg">
-            Connect Wallet
-          </button>
+          <ConnectButton 
+            connectText="Connect Wallet"
+            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all font-medium shadow-lg"
+          />
         </div>
       </div>
     );
@@ -691,7 +682,10 @@ export default function SplitSUIApp() {
                 <p className="text-sm text-gray-400">Connected</p>
                 <p className="font-mono text-blue-400">{account?.address ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}` : 'Demo Account'}</p>
               </div>
-              <button className="bg-red-600/20 text-red-400 px-4 py-2 rounded-lg hover:bg-red-600/30 transition-all">
+              <button 
+                onClick={() => disconnect()}
+                className="bg-red-600/20 text-red-400 px-4 py-2 rounded-lg hover:bg-red-600/30 transition-all"
+              > 
                 Disconnect
               </button>
             </div>
@@ -996,7 +990,7 @@ export default function SplitSUIApp() {
                       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div>
                           <h3 className="font-semibold text-white">{txn.type}</h3>
-                          <a href={`https://suiscan.xyz/testnet/tx/${txn.digest}`} className="text-sm text-gray-400">{txn.digest.slice(0, 20)}...</a>
+                          <a href={`https://suiscan.xyz/testnet/tx/${txn.digest}`} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-400 hover:text-blue-300 transition-colors">{txn.digest.slice(0, 20)}...</a>
                           <p className="text-sm text-gray-400">{txn.timestamp}</p>
                         </div>
                         <div className="flex items-center space-x-4">
