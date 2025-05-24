@@ -4,17 +4,17 @@ const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    // Check if user has a theme preference in localStorage
+    
     const savedTheme = localStorage.getItem('theme');
-    // Check if user's system prefers dark mode
+   
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     return savedTheme === 'dark' || (!savedTheme && prefersDark);
   });
 
   useEffect(() => {
-    // Update localStorage when theme changes
+    
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
-    // Update document class for global styles
+    
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
 

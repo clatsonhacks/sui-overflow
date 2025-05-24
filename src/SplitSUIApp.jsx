@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { TransactionBlock } from '@mysten/sui.js/transactions';
 import { ConnectButton, useCurrentAccount, useSignAndExecuteTransactionBlock, useSuiClient, useDisconnectWallet } from '@mysten/dapp-kit';
 
-const PACKAGE_ID = '0x6d975a4d7ad01f6f381b1293f5448f645ed0a7ea32ebc61c86dfdc8af347246a';
+const PACKAGE_ID = '0xdd0b929609fd7766c2593893e2f0498d900de081deec222b4f1324f6b1e514c9';
 
 const icons = {
   Wallet: () => <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>,
@@ -637,7 +637,7 @@ export default function SplitSUIApp() {
     </div>
   );
 
-  // Fixed InputField component
+  
   const InputField = ({ label, value, onChange, placeholder, type = "text", error }) => (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-gray-300">{label}</label>
@@ -646,7 +646,7 @@ export default function SplitSUIApp() {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`w-full px-4 py-3 bg-gray-800/50 border ${error ? 'border-red-500' : 'border-gray-700'} rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
+        className={`w-full px-4 py-3 bg-gray-500/50 border ${error ? 'border-red-500' : 'border-gray-700'} rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
       />
       {error && <p className="text-red-400 text-sm">{error}</p>}
     </div>
@@ -655,13 +655,12 @@ export default function SplitSUIApp() {
   if (!account) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center p-4">
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-2xl p-8 text-center shadow-2xl max-w-md w-full">
-          <icons.Wallet className="mx-auto mb-6 text-blue-400" />
+        <div className="bg-gray-800 backdrop-blur-sm border border-gray-700 rounded-2xl p-8 text-center shadow-2xl max-w-md w-full">
           <h1 className="text-3xl font-bold text-white mb-4">Sui Flow</h1>
-          <p className="text-gray-300 mb-8">Connect your wallet to start splitting SUI payments</p>
+          <p className="text-gray-300 mb-8">Your flow starts here. Connect your wallet.</p>
           <ConnectButton 
             connectText="Connect Wallet"
-            className="bg-gradient-to-r from-blue-700 to-purple-400 text-white px-8 py-3 rounded-lg hover:from-blue-700 hover:to-purple-500 transition-all font-medium shadow-lg"
+            className="bg-blue-700 text-white px-8 py-3 rounded-lg hover:bg-blue-600 active:bg-blue-500 transition-all font-medium shadow-lg"
           />
         </div>
       </div>
@@ -676,7 +675,7 @@ export default function SplitSUIApp() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <h1 className="text-3xl font-bold text-white mb-2">Sui Flow</h1>
-              <p className="text-gray-300">Send SUI to multiple recipients or create group payment requests</p>
+              <p className="text-gray-300">Split. Request. Contribute. Seamlessly on Sui</p>
             </div>
             <div className="flex items-center space-x-4">
               <div className="text-right">
@@ -685,7 +684,7 @@ export default function SplitSUIApp() {
               </div>
               <button 
                 onClick={() => disconnect()}
-                className="bg-red-600/20 text-red-400 px-4 py-2 rounded-lg hover:bg-red-600/30 transition-all"
+                className="bg-red-500 text-black-200 px-4 py-2 rounded-lg hover:bg-red-400 transition-all"
               > 
                 Disconnect
               </button>
@@ -776,7 +775,7 @@ export default function SplitSUIApp() {
                   </label>
                   <button
                     onClick={addRecipient}
-                    className="bg-blue-600/20 text-blue-400 px-4 py-2 rounded-lg hover:bg-blue-600/30 transition-all flex items-center"
+                    className="bg-blue-700/20 text-blue-100 px-4 py-2 rounded-lg hover:bg-blue-600/30 transition-all flex items-center"
                   >
                     <icons.Plus className="mr-2" />
                     Add Recipient
@@ -785,35 +784,46 @@ export default function SplitSUIApp() {
               </div>
 
               <div className="space-y-4">
-                {recipients.map((recipient, index) => (
-                  <div key={index} className="bg-gray-500/20 rounded-lg p-4 flex flex-col md:flex-row gap-4 items-end">
-                    <div className="flex-1">
-                      <InputField
-                        label="Recipient Address"
-                        value={recipient.address}
-                        onChange={(value) => updateRecipient(index, 'address', value)}
-                        placeholder="0x..."
-                      />
-                    </div>
-                    <div className="w-full md:w-48">
-                      <InputField
-                        label="Amount (SUI)"
-                        value={recipient.amount}
-                        onChange={(value) => updateRecipient(index, 'amount', value)}
-                        placeholder="0.0"
-                        type="number"
-                      />
-                    </div>
-                    <button
-                      onClick={() => removeRecipient(index)}
-                      className="bg-red-600/20 text-red-400 p-2 rounded-lg hover:bg-red-600/30 transition-all h-fit"
-                      disabled={recipients.length === 1}
-                    >
-                      <icons.Trash />
-                    </button>
-                  </div>
-                ))}
-              </div>
+  {recipients.map((recipient, index) => (
+    <div
+      key={index}
+      className="bg-gray-500/20 rounded-lg p-4 flex flex-col md:flex-row gap-4 items-end"
+    >
+      <div className="flex-1">
+        <label className="block text-sm font-medium text-gray-300 mb-2">
+          Recipient Address
+        </label>
+        <input
+          type="text"
+          value={recipient.address}
+          onChange={(e) => updateRecipient(index, 'address', e.target.value)}
+          placeholder="0x..."
+          className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+        />
+      </div>
+      <div className="w-full md:w-48">
+        <label className="block text-sm font-medium text-gray-300 mb-2">
+          Amount (SUI)
+        </label>
+        <input
+          type="number"
+          value={recipient.amount}
+          onChange={(e) => updateRecipient(index, 'amount', e.target.value)}
+          placeholder="0.0"
+          className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+        />
+      </div>
+      <button
+        onClick={() => removeRecipient(index)}
+        className="bg-red-600/20 text-red-400 p-2 rounded-lg hover:bg-red-600/30 transition-all h-fit"
+        disabled={recipients.length === 1}
+      >
+        <icons.Trash />
+      </button>
+    </div>
+  ))}
+            </div>
+
 
               <div className="bg-gray-700/30 rounded-lg p-4 flex justify-between items-center">
                 <span className="text-gray-300">Total Amount:</span>
@@ -849,7 +859,7 @@ export default function SplitSUIApp() {
                   </label>
                   <button
                     onClick={addPayer}
-                    className="bg-blue-600/20 text-blue-400 px-4 py-2 rounded-lg hover:bg-blue-600/30 transition-all flex items-center"
+                    className="bg-blue-700/20 text-blue-100 px-4 py-2 rounded-lg hover:bg-blue-600/30 transition-all flex items-center"
                   >
                     <icons.Plus className="mr-2" />
                     Add Payer
@@ -882,7 +892,7 @@ export default function SplitSUIApp() {
                   className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
               </div>
-              </div>
+            </div>
 
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold text-white">Payers</h3>
