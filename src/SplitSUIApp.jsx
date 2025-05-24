@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { TransactionBlock } from '@mysten/sui.js/transactions';
 import { ConnectButton, useCurrentAccount, useSignAndExecuteTransactionBlock, useSuiClient, useDisconnectWallet } from '@mysten/dapp-kit';
 
-const PACKAGE_ID = '0xdd0b929609fd7766c2593893e2f0498d900de081deec222b4f1324f6b1e514c9';
+const PACKAGE_ID = '0x6d975a4d7ad01f6f381b1293f5448f645ed0a7ea32ebc61c86dfdc8af347246a';
 
 const icons = {
   Wallet: () => <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>,
@@ -637,6 +637,7 @@ export default function SplitSUIApp() {
     </div>
   );
 
+  // Fixed InputField component
   const InputField = ({ label, value, onChange, placeholder, type = "text", error }) => (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-gray-300">{label}</label>
@@ -656,11 +657,11 @@ export default function SplitSUIApp() {
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center p-4">
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-2xl p-8 text-center shadow-2xl max-w-md w-full">
           <icons.Wallet className="mx-auto mb-6 text-blue-400" />
-          <h1 className="text-3xl font-bold text-white mb-4">SUI FLOW</h1>
+          <h1 className="text-3xl font-bold text-white mb-4">Sui Flow</h1>
           <p className="text-gray-300 mb-8">Connect your wallet to start splitting SUI payments</p>
           <ConnectButton 
             connectText="Connect Wallet"
-            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all font-medium shadow-lg"
+            className="bg-gradient-to-r from-blue-700 to-purple-400 text-white px-8 py-3 rounded-lg hover:from-blue-700 hover:to-purple-500 transition-all font-medium shadow-lg"
           />
         </div>
       </div>
@@ -674,7 +675,7 @@ export default function SplitSUIApp() {
         <div className="bg-gray-800/30 backdrop-blur-sm border border-gray-700 rounded-2xl p-6 mb-8 shadow-xl">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-2">Split SUI</h1>
+              <h1 className="text-3xl font-bold text-white mb-2">Sui Flow</h1>
               <p className="text-gray-300">Send SUI to multiple recipients or create group payment requests</p>
             </div>
             <div className="flex items-center space-x-4">
@@ -785,7 +786,7 @@ export default function SplitSUIApp() {
 
               <div className="space-y-4">
                 {recipients.map((recipient, index) => (
-                  <div key={index} className="bg-gray-700/30 rounded-lg p-4 flex flex-col md:flex-row gap-4 items-end">
+                  <div key={index} className="bg-gray-500/20 rounded-lg p-4 flex flex-col md:flex-row gap-4 items-end">
                     <div className="flex-1">
                       <InputField
                         label="Recipient Address"
@@ -857,40 +858,63 @@ export default function SplitSUIApp() {
               </div>
 
               <div className="grid md:grid-cols-2 gap-6">
-                <InputField
-                  label="Recipient Address"
+                <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Recipient Address
+                </label>
+                <input
+                  type="text"
                   value={recipient}
-                  onChange={setRecipient}
+                  onChange={(e) => setRecipient(e.target.value)}
                   placeholder="0x..."
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
-                <InputField
-                  label="Description (Optional)"
+              </div>
+                <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Description (optional)
+                </label>
+                <input
+                  type="text"
                   value={description}
-                  onChange={setDescription}
-                  placeholder="Dinner bill, gift, etc."
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Dinner bill, rent payment, etc."
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
+              </div>
               </div>
 
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold text-white">Payers</h3>
                 {payers.map((payer, index) => (
-                  <div key={index} className="bg-gray-700/30 rounded-lg p-4 flex flex-col md:flex-row gap-4 items-end">
+                  <div key={index} className="bg-gray-500/20 rounded-lg p-4 flex flex-col md:flex-row gap-4 items-end">
                     <div className="flex-1">
-                      <InputField
-                        label="Payer Address"
-                        value={payer.address}
-                        onChange={(value) => updatePayer(index, 'address', value)}
-                        placeholder="0x..."
-                      />
+                      <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Payer Address
+                </label>
+                <input
+                  type="text"
+                  value={payer.address}
+                  onChange={(e) => updatePayer(index, 'address', e.target.value)}
+                  placeholder="0x..."
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                />
+              </div>
                     </div>
                     <div className="w-full md:w-48">
-                      <InputField
-                        label="Amount (SUI)"
-                        value={payer.amount}
-                        onChange={(value) => updatePayer(index, 'amount', value)}
-                        placeholder="0.0"
-                        type="number"
-                      />
+                      <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Amount (SUI)
+                </label>
+                <input
+                  type="number"
+                  value={payer.amount}
+                  onChange={(e) => updatePayer(index, 'amount', e.target.value)}
+                  placeholder="0.0"
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                />
+              </div>
                     </div>
                     <button
                       onClick={() => removePayer(index)}
@@ -905,7 +929,7 @@ export default function SplitSUIApp() {
 
               <button
                 onClick={handleCreateGroupPayment}
-                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all font-bold text-lg shadow-lg"
+                className="w-full bg-gradient-to-r from-green-600 to-green-600 text-white py-4 rounded-lg hover:from-green-700 hover:to-emerald-700 transition-all font-bold text-lg shadow-lg"
               >
                 Create Payment Request
               </button>
@@ -970,7 +994,7 @@ export default function SplitSUIApp() {
             <div className="space-y-6">
               <div>
                 <h2 className="text-2xl font-bold text-white mb-2">Transaction History</h2>
-                <p className="text-gray-300">Your recent Split SUI transactions</p>
+                <p className="text-gray-300">Your recent Flow transactions</p>
               </div>
 
               {loading ? (
