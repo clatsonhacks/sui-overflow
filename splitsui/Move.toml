@@ -5,12 +5,9 @@ edition = "2024.beta"
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
 
-# Add Pyth Network dependencies when ready - you'll need to verify these addresses for your network
-# Pyth = { git = "https://github.com/pyth-network/pyth-sui.git", subdir = "target_chains/sui/contracts", rev = "main" }
 
 [addresses]
 splitsui = "0x0"
-# pyth = "0x975e063f398f2b974f7cd22c6a6f44d0a2c09f3114cb8c3469c6c4117d1106c6"  # Replace with actual Pyth package address on your network
 
 [dev-dependencies]
 # The dev-dependencies section allows overriding dependencies for `--test` and
