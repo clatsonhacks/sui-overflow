@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { TransactionBlock } from '@mysten/sui.js/transactions';
 import { ConnectButton, useCurrentAccount, useSignAndExecuteTransactionBlock, useSuiClient, useDisconnectWallet } from '@mysten/dapp-kit';
 
-const PACKAGE_ID = '0xdd0b929609fd7766c2593893e2f0498d900de081deec222b4f1324f6b1e514c9';
+const PACKAGE_ID = '0x6d975a4d7ad01f6f381b1293f5448f645ed0a7ea32ebc61c86dfdc8af347246a';
 
 const icons = {
   Wallet: () => <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>,
