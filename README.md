@@ -11,7 +11,7 @@ SuiFlow is a smart contract solution that allows users to:
 
 ## Architecture Flow
 
-![SuiFlow Architecture](sui flow flowchart.png)
+![SuiFlow Architecture]("sui flow flowchart.png")
 
 ## Quick Setup
 
